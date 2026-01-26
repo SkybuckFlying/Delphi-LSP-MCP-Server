@@ -2,6 +2,19 @@
 
 A Model Context Protocol (MCP) server that exposes Delphi Language Server Protocol (LSP) capabilities to AI assistants and other MCP clients.
 
+## Project Information
+
+**Author:** Skybuck Flying  
+**Contact:** skybuck2000@hotmail.com  
+**Version:** 0.01  
+
+**Repository:** https://github.com/SkybuckFlying/Delphi-LSP-MCP-Server  
+
+**Specifications:**  
+- MCP Specification (2025-11-25): https://modelcontextprotocol.io/specification/2025-11-25  
+- LSP Specification 3.17: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/
+
+
 ## Overview
 
 This server acts as a bridge between:
@@ -232,3 +245,42 @@ This is a demonstration project. Use at your own risk.
 ## Version
 
 0.1.0 - Initial release
+
+## Future Direction
+
+### For Production Use
+
+#### Add More LSP Features
+- Document symbols  
+- Code actions  
+- Formatting  
+- Rename  
+
+#### Enhance Error Handling
+- Automatic LSP server restart on crash  
+- Improved timeout handling  
+- Retry logic for transient failures  
+
+#### Add Configuration Options
+- Project file support  
+- Search path configuration  
+- Compiler settings  
+
+#### Performance Optimization
+- Connection pooling  
+- Response caching  
+- Async operations  
+
+
+### For Testing
+
+#### Unit Tests
+- JSON‑RPC parsing  
+- Protocol type serialization  
+- Message transport  
+
+#### Integration Tests
+- Real Delphi projects  
+- Various file types  
+- Edge cases  
+
