@@ -1,0 +1,127 @@
+#-------------------------------------------------------------------------------
+# Modern Delphi 12.3 and Delphi 13 .gitignore
+#-------------------------------------------------------------------------------
+
+#-------------------------------------------------------------------------------
+# Delphi / C++Builder Compiled Output & Binaries
+#-------------------------------------------------------------------------------
+*.exe
+*.dll
+*.so
+*.a
+*.lib
+*.bpl
+*.dcp
+*.dcu
+*.obj
+*.o
+
+#-------------------------------------------------------------------------------
+# Free Pascal Compiler (FPC) Output & Artifacts
+#-------------------------------------------------------------------------------
+*.ppu       # Pascal unit compiled
+*.compiled  # FPC build marker
+*.rst       # Resource strings
+*.s         # Assembly output
+*.ppl       # Pascal library
+*.pbd       # Debug info
+*.pdb       # Debug symbols
+*.map       # Linker map
+*.linkres   # Linker resource
+*.res       # Compiled resources
+*.lst       # Listing files
+*.log       # Build logs
+*.bak       # Backup files
+*.tmp       # Temporary files
+
+# FPC output folders
+**/lib/
+**/units/
+**/output/
+**/bin/
+
+#-------------------------------------------------------------------------------
+# Compiled resource files
+#-------------------------------------------------------------------------------
+*.res
+
+#-------------------------------------------------------------------------------
+# IDE Generated, User-Specific & Intermediate Files
+#-------------------------------------------------------------------------------
+*.~*
+*.bak
+*.old
+*.local
+*.dsk
+*.map
+*.tds
+*.drc
+*.rsm
+*.log
+*.pch
+*.ipch
+*.stat
+*.identcache
+*.dproj.local
+*.dproj.user
+*.groupproj.local
+*.groupproj.user
+# Delphi IDE bookmarks
+*.bkm
+# TestInsight configuration files
+*.tvsconfig
+*.history
+# Delphi 7 and Delphi 6 Diagram Portfolio
+*.ddp
+# Delphi 7 (and older) Project Configuration filed automatically created by command line compiler
+*.cfg
+# Legacy project files
+*.dof
+*.kof
+# General temporary files
+*.tmp
+*.temp
+
+#-------------------------------------------------------------------------------
+# IDE History, Recovery & Autosave
+#-------------------------------------------------------------------------------
+**/__history/
+**/__recovery/
+*.autosave
+
+#-------------------------------------------------------------------------------
+# Output Directories (using **/ to match at any depth)
+#-------------------------------------------------------------------------------
+**/Win32/
+**/Win64/
+**/Debug/
+**/Release/
+**/Linux64/
+**/OSX64/
+**/OSXARM64/
+**/Android/
+**/Android64/
+**/iOSDevice32/
+**/iOSDevice64/
+**/iOSSimulator/
+
+#-------------------------------------------------------------------------------
+# Common Temporary / Local / Sensitive Files (General)
+#-------------------------------------------------------------------------------
+# General compressed archives (often backups or downloads)
+*.zip
+
+# Environment variable files (CRITICAL for sensitive data, Gemini CLI)
+*.env
+
+#-------------------------------------------------------------------------------
+# VSCode
+#-------------------------------------------------------------------------------
+.vscode
+
+#-------------------------------------------------------------------------------
+# Misc
+#-------------------------------------------------------------------------------
+# bin/dump_branch_diff
+commits-logs/
+
