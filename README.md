@@ -103,7 +103,7 @@ Find the definition of a symbol at a specific position.
 
 **Parameters:**
 - `uri` (string): File URI (e.g., `file:///C:/path/to/file.pas`)
-- `line` (integer): Zero-based line number
+- `line` (integer): Zero-based line number (NOTE: Delphi IDE displays line numbers starting at 1, so subtract 1 from the IDE line number)
 - `character` (integer): Zero-based character offset
 
 **Example:**
@@ -121,7 +121,7 @@ Find all references to a symbol.
 
 **Parameters:**
 - `uri` (string): File URI
-- `line` (integer): Zero-based line number
+- `line` (integer): Zero-based line number (0-based)
 - `character` (integer): Zero-based character offset
 - `includeDeclaration` (boolean, optional): Include declaration in results (default: true)
 
@@ -131,7 +131,7 @@ Get hover information (documentation, type info) for a symbol.
 
 **Parameters:**
 - `uri` (string): File URI
-- `line` (integer): Zero-based line number
+- `line` (integer): Zero-based line number (0-based)
 - `character` (integer): Zero-based character offset
 
 ### delphi_completion
@@ -140,7 +140,7 @@ Get code completion suggestions at a specific position.
 
 **Parameters:**
 - `uri` (string): File URI
-- `line` (integer): Zero-based line number
+- `line` (integer): Zero-based line number (0-based)
 - `character` (integer): Zero-based character offset
 
 ### delphi_workspace_symbols

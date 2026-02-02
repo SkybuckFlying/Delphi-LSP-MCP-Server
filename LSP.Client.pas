@@ -31,7 +31,7 @@ type
     constructor Create(const ALSPPath: string);
     destructor Destroy; override;
     
-    function Initialize(const ARootUri: string): Boolean;
+    function Initialize(const ARootUri: string; AInitializationOptions: TJSONObject = nil): Boolean;
     procedure Shutdown;
     
     // Synchronous LSP operations
@@ -75,7 +75,7 @@ begin
   inherited;
 end;
 
-function TLSPClient.Initialize(const ARootUri: string): Boolean;
+function TLSPClient.Initialize(const ARootUri: string; AInitializationOptions: TJSONObject = nil): Boolean;
 var
   Params: TLSPInitializeParams;
   ParamsJson: TJSONObject;
@@ -97,6 +97,12 @@ begin
   Params.ProcessId := GetCurrentProcessId;
   Params.RootUri := ARootUri;
   Params.Capabilities := TJSONObject.Create;
+  
+  if Assigned(AInitializationOptions) then
+    Params.InitializationOptions := AInitializationOptions.Clone as TJSONObject
+  else
+    Params.InitializationOptions := nil;
+    
   ParamsJson := Params.ToJSON;
   
   Event := TEvent.Create(nil, True, False, '');

@@ -63,10 +63,27 @@ begin
   
   // Create LSP client
   FLSPClient := TLSPClient.Create(ALSPPath);
-  if not FLSPClient.Initialize(AWorkspaceRoot) then
-  begin
-    Logger.Error('Failed to initialize LSP client');
-    raise Exception.Create('Failed to initialize LSP client');
+  
+  // Create initialization options for pasls
+  {
+    "scanFilePatterns": ["*.pas", "*.pp", "*.dpr", "*.lpr"]
+  }
+  var InitOptions := TJSONObject.Create;
+  var Patterns := TJSONArray.Create;
+  Patterns.Add('*.pas');
+  Patterns.Add('*.pp');
+  Patterns.Add('*.dpr');
+  Patterns.Add('*.lpr');
+  InitOptions.AddPair('scanFilePatterns', Patterns);
+  
+  try
+    if not FLSPClient.Initialize(AWorkspaceRoot, InitOptions) then
+    begin
+      Logger.Error('Failed to initialize LSP client');
+      raise Exception.Create('Failed to initialize LSP client');
+    end;
+  finally
+    InitOptions.Free;
   end;
   
   // Create tools

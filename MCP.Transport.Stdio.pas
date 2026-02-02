@@ -102,6 +102,7 @@ begin
   FLock.Enter;
   try
     Utf8Message := UTF8Encode(AMessage);
+    // Use strict CRLF as per JSON-RPC/MCP specification, regardless of platform
     NewLine := #13#10;
     
     // Write content

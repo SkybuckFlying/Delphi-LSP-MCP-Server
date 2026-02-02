@@ -1,4 +1,4 @@
-program TestMCPClient;
+program TestLSPFunctionality;
 
 {$APPTYPE CONSOLE}
 
@@ -12,7 +12,33 @@ uses
 var
   StdinRead, StdoutWrite: THandle;
   StdinWrite, StdoutRead: THandle;
+  StderrRead, StderrWrite: THandle;
   ProcessHandle: THandle;
+  LogThreadHandle: THandle;
+  LogThreadId: DWORD;
+
+type
+  TLogReader = class
+  public
+    class procedure ReadLog(Payload: Pointer); static;
+  end;
+
+class procedure TLogReader.ReadLog(Payload: Pointer);
+var
+  Buffer: array[0..4095] of Byte; // Use Byte to correctly visualize it's raw data
+  BytesRead, BytesWritten: DWORD;
+  ConsoleOutput: THandle;
+begin
+  ConsoleOutput := GetStdHandle(STD_OUTPUT_HANDLE);
+  while ReadFile(StderrRead, Buffer, SizeOf(Buffer), BytesRead, nil) do
+  begin
+    if BytesRead > 0 then
+    begin
+      WriteFile(ConsoleOutput, Buffer, BytesRead, BytesWritten, nil);
+      // FlushFileBuffers(ConsoleOutput); // Not strictly necessary for console
+    end;
+  end;
+end;
 
 procedure SendMessage(const AMessage: string);
 var
@@ -27,8 +53,9 @@ begin
   WriteFile(StdinWrite, PAnsiChar(Utf8Message)^, Length(Utf8Message), BytesWritten, nil);
   FlushFileBuffers(StdinWrite);
   
-  WriteLn('Sent: ', Copy(AMessage, 1, 100), '...');
+  WriteLn('Sent: ', Copy(AMessage, 1, 150), '...');
 end;
+
 
 function ReadMessage: string;
 var
@@ -45,7 +72,6 @@ begin
   ContentLength := -1;
   Line := '';
   
-  // Read until we find Content-Length OR a JSON object
   while True do
   begin
     ReadRes := ReadFile(StdoutRead, Ch, 1, BytesRead, nil);
@@ -57,7 +83,7 @@ begin
       if Line = '' then
       begin
         if ContentLength > 0 then
-          Break; // End of headers
+          Break;
       end
       else if Pos('Content-Length:', string(Line)) = 1 then
       begin
@@ -66,7 +92,6 @@ begin
       end
       else if (Line <> '') and (Line[1] = '{') then
       begin
-        // Raw JSON detected
         Result := UTF8ToString(UTF8String(Line));
         Exit;
       end;
@@ -110,8 +135,7 @@ begin
   SA.bInheritHandle := True;
   SA.lpSecurityDescriptor := nil;
   
-  if not CreatePipe(StdinRead, StdinWrite, @SA, 0) then
-    Exit;
+  if not CreatePipe(StdinRead, StdinWrite, @SA, 0) then Exit;
   SetHandleInformation(StdinWrite, HANDLE_FLAG_INHERIT, 0);
   
   if not CreatePipe(StdoutRead, StdoutWrite, @SA, 0) then
@@ -121,21 +145,8 @@ begin
     Exit;
   end;
   SetHandleInformation(StdoutRead, HANDLE_FLAG_INHERIT, 0);
-
-  ZeroMemory(@SI, SizeOf(TStartupInfo));
-  SI.cb := SizeOf(TStartupInfo);
-  SI.dwFlags := STARTF_USESTDHANDLES or STARTF_USESHOWWINDOW;
-  SI.wShowWindow := SW_HIDE;
-  SI.hStdInput := StdinRead;
-  SI.hStdOutput := StdoutWrite;
-  SI.hStdError := GetStdHandle(STD_ERROR_HANDLE);
   
-  CmdLine := 'K:\Delphi\Tests\test Skybuck''s LSP MCP server\test it on pasls\DelphiLSPMCPServer.exe --log-level debug';
-  UniqueString(CmdLine); // Make string mutable for CreateProcess
-  ZeroMemory(@PI, SizeOf(TProcessInformation));
-  
-  if not CreateProcess(nil, PChar(CmdLine), nil, nil, True,
-    CREATE_NO_WINDOW, nil, nil, SI, PI) then
+  if not CreatePipe(StderrRead, StderrWrite, @SA, 0) then
   begin
     CloseHandle(StdinRead);
     CloseHandle(StdinWrite);
@@ -143,11 +154,40 @@ begin
     CloseHandle(StdoutWrite);
     Exit;
   end;
+  SetHandleInformation(StderrRead, HANDLE_FLAG_INHERIT, 0); // Read handle shouldn't be inherited? Wait, we read it. Write handle inherited.
+  SetHandleInformation(StderrRead, HANDLE_FLAG_INHERIT, 0); // Ensure Read end is NOT inherited
+  SetHandleInformation(StderrWrite, HANDLE_FLAG_INHERIT, 1); // Ensure Write end IS inherited
+
+  ZeroMemory(@SI, SizeOf(TStartupInfo));
+  SI.cb := SizeOf(TStartupInfo);
+  SI.dwFlags := STARTF_USESTDHANDLES or STARTF_USESHOWWINDOW;
+  SI.wShowWindow := SW_HIDE;
+  SI.hStdInput := StdinRead;
+  SI.hStdOutput := StdoutWrite;
+  SI.hStdError := StderrWrite;
+  
+  CmdLine := 'DelphiLSPMCPServer.exe --log-level debug';
+  UniqueString(CmdLine);
+  ZeroMemory(@PI, SizeOf(TProcessInformation));
+  
+  if not CreateProcess(nil, PChar(CmdLine), nil, nil, True,
+    CREATE_NO_WINDOW, nil, nil, SI, PI) then
+  begin
+    CloseHandle(StdinRead); CloseHandle(StdinWrite);
+    CloseHandle(StdoutRead); CloseHandle(StdoutWrite);
+    CloseHandle(StderrRead); CloseHandle(StderrWrite);
+    Exit;
+  end;
   
   CloseHandle(StdinRead);
   CloseHandle(StdoutWrite);
+  CloseHandle(StderrWrite); // Close write end in parent
+  
   CloseHandle(PI.hThread);
   ProcessHandle := PI.hProcess;
+  
+  // Start log reader thread
+  LogThreadHandle := CreateThread(nil, 0, @TLogReader.ReadLog, nil, 0, LogThreadId);
   
   Result := True;
 end;
@@ -157,23 +197,63 @@ var
   Request, Response: string;
 begin
   WriteLn('=== Test: Initialize ===');
-  Request := '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{' +
+  Request := Format('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{' +
     '"protocolVersion":"2024-11-05",' +
+    '"rootUri":"file:///%s",' +
     '"capabilities":{},' +
     '"clientInfo":{"name":"test-client","version":"1.0"}' +
-    '}}';
+    '}}', [StringReplace(ExtractFilePath(ParamStr(0)), '\', '/', [rfReplaceAll])]);
   SendMessage(Request);
   Response := ReadMessage;
   WriteLn('Received: ', Response);
   WriteLn;
 end;
 
-procedure TestToolsList;
+procedure TestGoToDefinition;
 var
   Request, Response: string;
+  FilePath: string;
 begin
-  WriteLn('=== Test: Tools List ===');
-  Request := '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}';
+  WriteLn('=== Test: Go To Definition ===');
+  FilePath := ExtractFilePath(ParamStr(0)) + 'SourceForAnalysis.dpr';
+  FilePath := StringReplace(FilePath, '\', '/', [rfReplaceAll]);
+  
+  // Looking for definition of 'Bar' at the call site (Line 23, Char 6)
+  // Note: Line 23 is index 22 in 0-based LSP
+  
+  Request := Format('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{' +
+    '"name":"delphi_goto_definition",' +
+    '"arguments":{' +
+    '"uri":"file:///%s",' +
+    '"line":22,' +
+    '"character":6' +
+    '}}}', [FilePath]);
+    
+  SendMessage(Request);
+  Response := ReadMessage;
+  WriteLn('Received: ', Response);
+  WriteLn;
+end;
+
+procedure TestHover;
+var
+  Request, Response: string;
+  FilePath: string;
+begin
+  WriteLn('=== Test: Hover ===');
+  FilePath := ExtractFilePath(ParamStr(0)) + 'SourceForAnalysis.dpr';
+  FilePath := StringReplace(FilePath, '\', '/', [rfReplaceAll]);
+  
+  // Hover over 'Bar' at the call site (Line 23, Char 6)
+  
+  Request := Format('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{' +
+    '"name":"delphi_hover",' +
+    '"arguments":{' +
+    '"uri":"file:///%s",' +
+    '"line":22,' +
+    '"character":6' +
+    '}}}', [FilePath]);
+    
   SendMessage(Request);
   Response := ReadMessage;
   WriteLn('Received: ', Response);
@@ -191,11 +271,19 @@ begin
     CloseHandle(StdinWrite);
   if StdoutRead <> 0 then
     CloseHandle(StdoutRead);
+  if StderrRead <> 0 then
+    CloseHandle(StderrRead);
+  if LogThreadHandle <> 0 then
+  begin
+    TerminateThread(LogThreadHandle, 0);
+    CloseHandle(LogThreadHandle);
+  end;
 end;
 
 begin
   try
-    WriteLn('MCP Server Test Client');
+    SetConsoleOutputCP(CP_UTF8); // Force console to UTF-8 to display server logs correctly
+    WriteLn('MCP Functionality Test');
     WriteLn('======================');
     WriteLn;
     
@@ -204,17 +292,20 @@ begin
       WriteLn('ERROR: Failed to start server');
       ExitCode := 1;
       Exit;
-	end;
+    end;
     
     WriteLn('Server started successfully');
     WriteLn;
     
-    Sleep(1000); // Give server time to initialize
+    Sleep(2000); // Wait for pasls to fully load
     
     TestInitialize;
     Sleep(500);
     
-    TestToolsList;
+    TestGoToDefinition;
+    Sleep(500);
+    
+    TestHover;
     Sleep(500);
     
     WriteLn('Tests completed');

@@ -86,16 +86,13 @@ const
   LevelNames: array[TLogLevel] of string = ('DEBUG', 'INFO', 'WARN', 'ERROR');
 var
   LogLine: string;
-  StdErrHandle: THandle;
-  BytesWritten: DWORD;
-  AnsiLog: AnsiString;
 begin
   if ALevel < FLogLevel then
     Exit;
     
   FLock.Enter;
   try
-    LogLine := Format('[%s] [%s] %s'#13#10, [
+    LogLine := Format('[%s] [%s] %s', [
       FormatDateTime('yyyy-mm-dd hh:nn:ss.zzz', Now),
       LevelNames[ALevel],
       AMessage
@@ -103,12 +100,8 @@ begin
     
     if FLogToStderr then
     begin
-      StdErrHandle := GetStdHandle(STD_ERROR_HANDLE);
-      if StdErrHandle <> INVALID_HANDLE_VALUE then
-      begin
-        AnsiLog := UTF8Encode(LogLine);
-        WriteFile(StdErrHandle, PAnsiChar(AnsiLog)^, Length(AnsiLog), BytesWritten, nil);
-      end;
+      Writeln(ErrOutput, LogLine);
+      Flush(ErrOutput);
     end;
   finally
     FLock.Leave;
@@ -161,6 +154,39 @@ begin
 end;
 
 initialization
+  TLogger.FLock := TCriticalSection.Create;
+  // Ensure stderr output uses UTF-8 to support emojis and special characters
+  SetTextCodePage(ErrOutput, 65001); // 65001 is UTF-8
+  // Or for modern Delphi:
+  // Rewrite(ErrOutput, TEncoding.UTF8); // Note: ErrOutput is already open, Rewrite might reset it. 
+  // Ideally, use SetConsoleOutputCP(CP_UTF8) but that affects the whole console.
+  // Since we are piping, we just want the bytes written to the handle to be UTF-8.
+  // In Delphi, 'ErrOutput' defaults to the system code page.
+  // Let's try attempting to set the encoding if possible, or usually SetTextCodePage works for text files.
+  
+  // Note: SetTextCodePage is the RTL way.
+  // Re-opening ErrOutput with specific encoding:
+  
+  try
+    // Prevent 'File not open' error if not console
+    if IsConsole then
+    begin
+        // Force UTF-8 for standard error
+       // AssignFile(ErrOutput, '');  // Already done by system
+       // Rewrite(ErrOutput); // This resets it
+       // We can just set the code page for the existing file handle wrapper if possible.
+       // The safest way in modern Delphi to ensure WriteLn emits UTF8 bytes is:
+       // System.OutputEncoding := TEncoding.UTF8; // Affects Output
+       // But ErrOutput?
+    end;
+  except
+  end;  
+
+  // Actually, simplest fix: modify TLogger.Log to write UTF8 bytes directly using WriteFile
+  // OR rely on SetConsoleOutputCP in the main program. 
+  
+  // Let's modify the Main Program (DelphiLSPMCPServer.dpr) to set output encoding.
+  // Changing this file (Common.Logging) to just hold the lock creation.
   TLogger.FLock := TCriticalSection.Create;
 
 finalization

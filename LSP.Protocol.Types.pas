@@ -139,6 +139,7 @@ type
     ProcessId: Integer;
     RootUri: string;
     Capabilities: TJSONObject;
+    InitializationOptions: TJSONObject;
     function ToJSON: TJSONObject;
     class function FromJSON(AJson: TJSONObject): TLSPInitializeParams; static;
   end;
@@ -437,6 +438,8 @@ begin
     Result.AddPair('capabilities', Capabilities.Clone as TJSONObject)
   else
     Result.AddPair('capabilities', TJSONObject.Create);
+  if Assigned(InitializationOptions) then
+    Result.AddPair('initializationOptions', InitializationOptions.Clone as TJSONObject);
 end;
 
 class function TLSPInitializeParams.FromJSON(AJson: TJSONObject): TLSPInitializeParams;
@@ -446,6 +449,9 @@ begin
   Result.Capabilities := AJson.GetValue('capabilities') as TJSONObject;
   if Assigned(Result.Capabilities) then
     Result.Capabilities := Result.Capabilities.Clone as TJSONObject;
+  Result.InitializationOptions := AJson.GetValue('initializationOptions') as TJSONObject;
+  if Assigned(Result.InitializationOptions) then
+    Result.InitializationOptions := Result.InitializationOptions.Clone as TJSONObject;
 end;
 
 { TLSPInitializeResult }

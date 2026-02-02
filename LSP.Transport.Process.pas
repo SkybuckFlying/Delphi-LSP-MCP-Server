@@ -321,15 +321,14 @@ procedure TLSPProcessTransport.ErrorLoop;
 var
   Buffer: array[0..4095] of AnsiChar;
   BytesRead: DWORD;
-  ErrorText: string;
+  ErrorText: UTF8String;
 begin
   while FRunning do
   begin
     if ReadFile(FStderrRead, Buffer, SizeOf(Buffer), BytesRead, nil) and (BytesRead > 0) then
     begin
-      SetLength(ErrorText, BytesRead);
-      Move(Buffer[0], ErrorText[1], BytesRead);
-      Logger.Warning('LSP stderr: %s', [Trim(ErrorText)]);
+      SetString(ErrorText, PAnsiChar(@Buffer[0]), BytesRead);
+      Logger.Warning('LSP stderr: %s', [Trim(string(ErrorText))]);
     end
     else if not FRunning then
       Break;

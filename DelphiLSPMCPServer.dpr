@@ -18,7 +18,12 @@ uses
   MCP.Server in 'MCP.Server.pas';
 
 const
+  // delphilsp for Delphi 13
   DEFAULT_LSP_PATH = 'C:\Tools\RAD Studio\37.0\bin64\DelphiLSP.exe';
+
+  // pasls for free pascal compiler and lazarus:
+//  DEFAULT_LSP_PATH = 'G:\Tools\PascalLanguageServer\git version 26 january 2026\pasls.exe';
+
   DEFAULT_WORKSPACE = '';
 
 var
@@ -30,7 +35,7 @@ var
 
 procedure ShowUsage;
 begin
-  WriteLn(ErrOutput, 'Delphi LSP MCP Server v0.1.0');
+  WriteLn(ErrOutput, 'Delphi LSP MCP Server v0.2.0');
   WriteLn(ErrOutput, '');
   WriteLn(ErrOutput, 'Usage: DelphiLSPMCPServer [options]');
   WriteLn(ErrOutput, '');
@@ -73,7 +78,7 @@ begin
       begin
         WriteLn(ErrOutput, 'Error: --lsp-path requires a value');
         Result := False;
-        Exit;
+		Exit;
       end;
     end
     else if Param = '--workspace' then
@@ -138,6 +143,9 @@ end;
 
 begin
   try
+    // Force Console Output to UTF-8 to handle special characters (e.g. from pasls)
+    SetConsoleOutputCP(CP_UTF8);
+    
     // Parse command line
     if not ParseCommandLine then
       Exit;
@@ -145,7 +153,7 @@ begin
     // Configure logging
     ConfigureLogging;
     
-    Logger.Info('=== Delphi LSP MCP Server v0.1.0 ===');
+    Logger.Info('=== Delphi LSP MCP Server v0.2.0 ===');
     Logger.Info('LSP Path: %s', [LSPPath]);
     Logger.Info('Workspace: %s', [WorkspaceRoot]);
     Logger.Info('Log Level: %s', [LogLevel]);

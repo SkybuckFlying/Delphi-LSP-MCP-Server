@@ -7,18 +7,21 @@ unit MCP.Tools.LSP;
 interface
 
 uses
-  System.SysUtils, System.Classes, System.JSON, System.Generics.Collections, System.Math,
+  System.SysUtils, System.Classes, System.JSON, System.Generics.Collections, System.Math, System.IOUtils, Winapi.Windows,
   MCP.Protocol.Types, LSP.Client, LSP.Protocol.Types, Common.Logging;
 
 type
   TMCPLSPTools = class
   private
     FLSPClient: TLSPClient;
+    FOpenedFiles: THashSet<string>;
     
     function CreateTextContent(const AText: string): TJSONObject;
     function LocationToText(const ALocation: TLSPLocation): string;
+    procedure EnsureDocumentOpen(const AUri: string);
   public
     constructor Create(ALSPClient: TLSPClient);
+    destructor Destroy; override;
     
     class function GetToolDefinitions: TArray<TMCPTool>;
     function ExecuteTool(const AToolName: string; AArguments: TJSONObject): TMCPToolCallResult;
@@ -33,12 +36,56 @@ type
 
 implementation
 
+uses
+  System.NetEncoding;
+
 { TMCPLSPTools }
 
 constructor TMCPLSPTools.Create(ALSPClient: TLSPClient);
 begin
   inherited Create;
   FLSPClient := ALSPClient;
+  FOpenedFiles := THashSet<string>.Create;
+end;
+
+destructor TMCPLSPTools.Destroy;
+begin
+  FOpenedFiles.Free;
+  inherited;
+end;
+
+procedure TMCPLSPTools.EnsureDocumentOpen(const AUri: string);
+var
+  FilePath: string;
+  FileContent: string;
+begin
+  if FOpenedFiles.Contains(AUri) then
+    Exit;
+
+  // Convert URI to FilePath
+  if AUri.StartsWith('file:///', True) then
+  begin
+    FilePath := AUri.Substring(8); // Remove file:///
+    FilePath := TNetEncoding.URL.Decode(FilePath);
+    FilePath := StringReplace(FilePath, '/', '\', [rfReplaceAll]);
+  end
+  else
+    Exit; // Not a file URI we can handle
+
+  if FileExists(FilePath) then
+  begin
+    try
+      FileContent := TFile.ReadAllText(FilePath);
+      FLSPClient.DidOpenTextDocument(AUri, 'pascal', FileContent, 1);
+      FOpenedFiles.Add(AUri);
+      Logger.Info('Auto-opened document: %s', [AUri]);
+      // Give the LSP server a moment to index the new file
+      Sleep(500);
+    except
+      on E: Exception do
+        Logger.Error('Failed to auto-open document %s: %s', [FilePath, E.Message]);
+    end;
+  end;
 end;
 
 class function TMCPLSPTools.GetToolDefinitions: TArray<TMCPTool>;
@@ -150,6 +197,8 @@ begin
   Line := AArguments.GetValue<Integer>('line');
   Character := AArguments.GetValue<Integer>('character');
   
+  EnsureDocumentOpen(Uri);
+  
   Locations := FLSPClient.GetDefinition(Uri, Line, Character);
   
   if Length(Locations) = 0 then
@@ -188,6 +237,8 @@ begin
   if not AArguments.TryGetValue<Boolean>('includeDeclaration', IncludeDeclaration) then
     IncludeDeclaration := True;
   
+  EnsureDocumentOpen(Uri);
+  
   Locations := FLSPClient.GetReferences(Uri, Line, Character, IncludeDeclaration);
   
   if Length(Locations) = 0 then
@@ -217,6 +268,8 @@ begin
   Line := AArguments.GetValue<Integer>('line');
   Character := AArguments.GetValue<Integer>('character');
   
+  EnsureDocumentOpen(Uri);
+  
   if FLSPClient.GetHover(Uri, Line, Character, Hover) then
   begin
     ResultText := Hover.Contents.Value;
@@ -242,6 +295,8 @@ begin
   Uri := AArguments.GetValue<string>('uri');
   Line := AArguments.GetValue<Integer>('line');
   Character := AArguments.GetValue<Integer>('character');
+  
+  EnsureDocumentOpen(Uri);
   
   Items := FLSPClient.GetCompletion(Uri, Line, Character);
   
