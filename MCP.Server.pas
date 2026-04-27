@@ -55,7 +55,7 @@ type
 
 const
   MCP_NOT_INITIALIZED   = -32002;
-  MCP_PROTOCOL_VERSION  = '2024-11-05';
+  MCP_PROTOCOL_VERSION  = '2025-11-25';
 
 implementation
 

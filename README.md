@@ -208,7 +208,7 @@ The project is organized into well-separated units with clear responsibilities:
 
 ### MCP Protocol
 
-- Version: 2024-11-05
+- Version: 2025-11-25
 - Transport: stdio with Content-Length headers
 - Message Format: JSON-RPC 2.0
 
@@ -262,10 +262,10 @@ This is a demonstration project. Use at your own risk.
 
 ## Version History
 
-- **0.01** — Initial release
-- **0.02** — Protocol compliance improvements
-- **0.03** — Skipped
-- **0.04** — Improved unit separation and architecture
+- **0.01** (26 January 2026) — Initial release
+- **0.02** (2 February 2026) — Protocol compliance improvements
+- **0.03** (2 February 2026) — Skipped
+- **0.04** (27 April 2026) — Improved unit separation and architecture
   - Thread safety improvements: atomic flags via `TInterlocked` for running/initialized state
   - Added LSP retry logic with configurable delays (100ms, 300ms, 600ms)
   - Auto document open: tools automatically call `textDocument/didOpen` before LSP requests

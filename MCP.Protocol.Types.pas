@@ -13,7 +13,7 @@ type
   TMCPProtocolVersion = string;
 
 const
-  MCP_PROTOCOL_VERSION = '2024-11-05';
+  MCP_PROTOCOL_VERSION = '2025-11-25';
 
 type
   TMCPClientInfo = record
