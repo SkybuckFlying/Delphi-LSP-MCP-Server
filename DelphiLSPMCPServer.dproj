@@ -3,7 +3,7 @@
         <ProjectGuid>{C4F7EBAB-DD21-4564-BAAC-0E12956A7162}</ProjectGuid>
         <MainSource>DelphiLSPMCPServer.dpr</MainSource>
         <Base>True</Base>
-        <Config Condition="'$(Config)'==''">Release</Config>
+        <Config Condition="'$(Config)'==''">Debug</Config>
         <ProjectName Condition="'$(ProjectName)'==''">DelphiLSPMCPServer</ProjectName>
         <TargetedPlatforms>2</TargetedPlatforms>
         <AppType>Console</AppType>
