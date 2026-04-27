@@ -11,6 +11,8 @@ uses
   MCP.Protocol.Types, LSP.Client, LSP.Protocol.Types, Common.Logging;
 
 type
+  TLSPCallFunc<T> = reference to function(out AResults: TArray<T>): Boolean;
+
   TMCPLSPTools = class
   private
     FLSPClient: TLSPClient;
@@ -19,9 +21,8 @@ type
     function CreateTextContent(const AText: string): TMCPContentItem;
     function LocationToText(const ALocation: TLSPLocation): string;
     function EnsureDocumentOpen(const AUri: string): Boolean;
-    function RetryLSPCall<T>(ARequest: TFunc<TArray<T>>; const AContext: string; out AHadTimeout: Boolean): TArray<T>;
+    function RetryLSPCall<T>(ACall: TLSPCallFunc<T>; const AContext: string; out AHadTimeout: Boolean): TArray<T>;
   public
-    // FIX: Move constants here so generic method can see them
     const
       LSP_RETRY_COUNT = 3;
       LSP_RETRY_DELAY_MS: array[0..2] of Integer = (100, 300, 600);
@@ -95,20 +96,20 @@ begin
   end;
 end;
 
-function TMCPLSPTools.RetryLSPCall<T>(ARequest: TFunc<TArray<T>>; const AContext: string; out AHadTimeout: Boolean): TArray<T>;
+function TMCPLSPTools.RetryLSPCall<T>(ACall: TLSPCallFunc<T>; const AContext: string; out AHadTimeout: Boolean): TArray<T>;
 var
   I: Integer;
 begin
   AHadTimeout := False;
+  SetLength(Result, 0);
   for I := 0 to LSP_RETRY_COUNT - 1 do
   begin
-    Result := ARequest();
-    if Length(Result) > 0 then
-      Exit; // Got results, done
+    if ACall(Result) then
+      Exit; // Request succeeded (even if result array is empty)
 
     if I < LSP_RETRY_COUNT - 1 then
     begin
-      Logger.Debug('%s returned 0 results, retrying in %dms (attempt %d/%d)',
+      Logger.Debug('%s failed, retrying in %dms (attempt %d/%d)',
         [AContext, LSP_RETRY_DELAY_MS[I], I + 2, LSP_RETRY_COUNT]);
       Sleep(LSP_RETRY_DELAY_MS[I]);
     end
@@ -156,7 +157,7 @@ begin
   Props.AddPair('uri', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'File URI (e.g., file:///C:/path/to/file.pas)'));
   Props.AddPair('line', TJSONObject.Create.AddPair('type', 'integer').AddPair('description', 'Zero-based line number'));
   Props.AddPair('character', TJSONObject.Create.AddPair('type', 'integer').AddPair('description', 'Zero-based character offset'));
-  Props.AddPair('includeDeclaration', TJSONObject.Create.AddPair('type', 'boolean').AddPair('description', 'Include the declaration in results').AddPair('default', TJSONBool.Create(True)));
+  Props.AddPair('includeDeclaration', TJSONObject.Create.AddPair('type', 'boolean').AddPair('description', 'Include the declaration in results').AddPair('default', True));
   Result[1] := MakeTool('delphi_find_references',
     'Find all references to a symbol at a specific position in a Delphi source file',
     MakeSchema(['uri', 'line', 'character'], Props));
@@ -220,7 +221,7 @@ end;
 function TMCPLSPTools.ExecuteGotoDefinition(AArguments: TJSONObject): TMCPToolCallResult;
 var
   Uri: string;
-  Line, Character: Integer;
+  Line, Char: Integer;
   Locations: TArray<TLSPLocation>;
   I: Integer;
   ResultText: string;
@@ -231,17 +232,16 @@ begin
 
   Uri := AArguments.GetValue<string>('uri');
   Line := AArguments.GetValue<Integer>('line');
-  Character := AArguments.GetValue<Integer>('character');
+  Char := AArguments.GetValue<Integer>('character');
 
   WasJustOpened := EnsureDocumentOpen(Uri);
 
   Locations := RetryLSPCall<TLSPLocation>(
-    function: TArray<TLSPLocation>
+    function(out L: TArray<TLSPLocation>): Boolean
     begin
-      Result := FLSPClient.GetDefinition(Uri, Line, Character);
+      Exit(FLSPClient.GetDefinition(Uri, Line, Char, L));
     end,
-    'GetDefinition',
-    HadTimeout);
+    'GetDefinition', HadTimeout);
 
   if Length(Locations) = 0 then
   begin
@@ -267,8 +267,8 @@ end;
 function TMCPLSPTools.ExecuteFindReferences(AArguments: TJSONObject): TMCPToolCallResult;
 var
   Uri: string;
-  Line, Character: Integer;
-  IncludeDeclaration: Boolean;
+  Line, Char: Integer;
+  IncludeDecl: Boolean;
   Locations: TArray<TLSPLocation>;
   I: Integer;
   ResultText: string;
@@ -279,20 +279,19 @@ begin
 
   Uri := AArguments.GetValue<string>('uri');
   Line := AArguments.GetValue<Integer>('line');
-  Character := AArguments.GetValue<Integer>('character');
+  Char := AArguments.GetValue<Integer>('character');
 
-  if not AArguments.TryGetValue<Boolean>('includeDeclaration', IncludeDeclaration) then
-    IncludeDeclaration := True;
+  if not AArguments.TryGetValue<Boolean>('includeDeclaration', IncludeDecl) then
+    IncludeDecl := True;
 
   EnsureDocumentOpen(Uri);
 
   Locations := RetryLSPCall<TLSPLocation>(
-    function: TArray<TLSPLocation>
+    function(out L: TArray<TLSPLocation>): Boolean
     begin
-      Result := FLSPClient.GetReferences(Uri, Line, Character, IncludeDeclaration);
+      Exit(FLSPClient.GetReferences(Uri, Line, Char, IncludeDecl, L));
     end,
-    'GetReferences',
-    HadTimeout);
+    'GetReferences', HadTimeout);
 
   if Length(Locations) = 0 then
   begin
@@ -316,40 +315,55 @@ end;
 function TMCPLSPTools.ExecuteHover(AArguments: TJSONObject): TMCPToolCallResult;
 var
   Uri: string;
-  Line, Character: Integer;
+  Line, Char: Integer;
   Hover: TLSPHover;
   ResultText: string;
-  RetryCount: Integer;
-  HadTimeout: Boolean;
+  IsValid, HadTimeout: Boolean;
+  I: Integer;
 begin
   Result := TMCPToolCallResult.Create;
   Result.IsError := False;
 
   Uri := AArguments.GetValue<string>('uri');
   Line := AArguments.GetValue<Integer>('line');
-  Character := AArguments.GetValue<Integer>('character');
+  Char := AArguments.GetValue<Integer>('character');
 
   EnsureDocumentOpen(Uri);
 
-  ResultText := 'No hover information available';
-  HadTimeout := True;
-  for RetryCount := 0 to LSP_RETRY_COUNT - 1 do
+  IsValid := False;
+  HadTimeout := False;
+  for I := 0 to LSP_RETRY_COUNT - 1 do
   begin
-    if FLSPClient.GetHover(Uri, Line, Character, Hover) then
+    if FLSPClient.GetHover(Uri, Line, Char, Hover) then
     begin
-      if Hover.Contents.Value <> '' then
-      begin
-        ResultText := Hover.Contents.Value;
-        HadTimeout := False;
-        Break;
-      end;
+      IsValid := True;
+      Break;
     end;
-    if RetryCount < LSP_RETRY_COUNT - 1 then
-      Sleep(LSP_RETRY_DELAY_MS[RetryCount]);
+
+    if I < LSP_RETRY_COUNT - 1 then
+    begin
+      Logger.Debug('GetHover failed, retrying in %dms (attempt %d/%d)',
+        [LSP_RETRY_DELAY_MS[I], I + 2, LSP_RETRY_COUNT]);
+      Sleep(LSP_RETRY_DELAY_MS[I]);
+    end
+    else
+    begin
+      HadTimeout := True;
+      Logger.Warning('GetHover timed out after %d retries', [LSP_RETRY_COUNT]);
+    end;
   end;
 
-  if HadTimeout and (ResultText = 'No hover information available') then
-    ResultText := LSP_TIMEOUT_MSG + 'No hover information available after 3 retries';
+  if not IsValid then
+  begin
+    if HadTimeout then
+      ResultText := LSP_TIMEOUT_MSG + 'No hover info found after 3 retries'
+    else
+      ResultText := 'No hover info found';
+  end
+  else
+  begin
+    ResultText := Hover.Contents.Value;
+  end;
 
   Result.Content.Add(CreateTextContent(ResultText));
 end;
@@ -357,7 +371,7 @@ end;
 function TMCPLSPTools.ExecuteCompletion(AArguments: TJSONObject): TMCPToolCallResult;
 var
   Uri: string;
-  Line, Character: Integer;
+  Line, Char: Integer;
   Items: TArray<TLSPCompletionItem>;
   I: Integer;
   ResultText: string;
@@ -368,17 +382,16 @@ begin
 
   Uri := AArguments.GetValue<string>('uri');
   Line := AArguments.GetValue<Integer>('line');
-  Character := AArguments.GetValue<Integer>('character');
+  Char := AArguments.GetValue<Integer>('character');
 
   EnsureDocumentOpen(Uri);
 
   Items := RetryLSPCall<TLSPCompletionItem>(
-    function: TArray<TLSPCompletionItem>
+    function(out L: TArray<TLSPCompletionItem>): Boolean
     begin
-      Result := FLSPClient.GetCompletion(Uri, Line, Character);
+      Exit(FLSPClient.GetCompletion(Uri, Line, Char, L));
     end,
-    'GetCompletion',
-    HadTimeout);
+    'GetCompletion', HadTimeout);
 
   if Length(Items) = 0 then
   begin
@@ -416,25 +429,26 @@ begin
 
   Query := AArguments.GetValue<string>('query');
 
-  Symbols := FLSPClient.GetWorkspaceSymbols(Query);
-
-  if Length(Symbols) = 0 then
+  if FLSPClient.GetWorkspaceSymbols(Query, Symbols) then
   begin
-    ResultText := Format('No symbols found matching "%s"', [Query]);
+    if Length(Symbols) = 0 then
+      ResultText := Format('No symbols found matching "%s"', [Query])
+    else
+    begin
+      ResultText := Format('Found %d symbol(s) matching "%s":'#13#10, [Length(Symbols), Query]);
+      for I := 0 to Min(High(Symbols), 49) do
+      begin
+        ResultText := ResultText + Format('%d. %s', [I + 1, Symbols[I].Name]);
+        if Symbols[I].ContainerName <> '' then
+          ResultText := ResultText + ' (in ' + Symbols[I].ContainerName + ')';
+        ResultText := ResultText + #13#10' ' + LocationToText(Symbols[I].Location) + #13#10;
+      end;
+      if Length(Symbols) > 50 then
+        ResultText := ResultText + Format('... and %d more', [Length(Symbols) - 50]);
+    end;
   end
   else
-  begin
-    ResultText := Format('Found %d symbol(s) matching "%s":'#13#10, [Length(Symbols), Query]);
-    for I := 0 to Min(High(Symbols), 49) do
-    begin
-      ResultText := ResultText + Format('%d. %s', [I + 1, Symbols[I].Name]);
-      if Symbols[I].ContainerName <> '' then
-        ResultText := ResultText + ' (in ' + Symbols[I].ContainerName + ')';
-      ResultText := ResultText + #13#10' ' + LocationToText(Symbols[I].Location) + #13#10;
-    end;
-    if Length(Symbols) > 50 then
-      ResultText := ResultText + Format('... and %d more', [Length(Symbols) - 50]);
-  end;
+    ResultText := 'Error searching for workspace symbols';
 
   Result.Content.Add(CreateTextContent(ResultText));
 end;

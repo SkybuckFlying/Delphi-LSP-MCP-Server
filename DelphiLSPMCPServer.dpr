@@ -18,6 +18,7 @@ uses
   LSP.Transport.Process in 'LSP.Transport.Process.pas',
   LSP.Client in 'LSP.Client.pas',
   MCP.Tools.LSP in 'MCP.Tools.LSP.pas',
+  Common.Utils in 'Common.Utils.pas',
   MCP.Server in 'MCP.Server.pas';
 
 const
@@ -34,99 +35,11 @@ var
   WorkspaceRoot: string;
   LogLevel: string;
 
-function EncodePathComponent(const S: string): string;
-var
-  I: Integer;
-  C: Char;
-begin
-  Result := '';
-  for I := 1 to Length(S) do
-  begin
-    C := S[I];
-    if CharInSet(C, ['A'..'Z', 'a'..'z', '0'..'9', '-', '_', '.', '~', '/', ':']) then
-      Result := Result + C
-    else
-      Result := Result + '%' + IntToHex(Ord(C), 2);
-  end;
-end;
 
-// Simplified, practical file:// URI generator for Windows + UNC
-function PathToFileUri(const APath: string): string;
-var
-  P: string;
-begin
-  if APath = '' then
-    Exit('');
-
-  P := TPath.GetFullPath(APath);
-  P := StringReplace(P, '\', '/', [rfReplaceAll]);
-
-  // UNC: \\server\share\path -> file://server/share/path
-  if P.StartsWith('//') then
-  begin
-    // Strip leading //, split host + path
-    Result := 'file:' + EncodePathComponent(P);
-    Exit;
-  end;
-
-  // Drive path: C:/dir/file -> file:///C:/dir/file
-  Result := 'file:///' + EncodePathComponent(P);
-end;
-
-// Reverse of PathToFileUri for local + UNC
-function FileUriToPath(const AUri: string): string;
-var
-  P, Host, PathPart: string;
-  SlashPos: Integer;
-begin
-  Result := '';
-  if not AUri.StartsWith('file://', True) then
-    Exit;
-
-  // Strip scheme
-  P := Copy(AUri, 8); // after 'file://'
-
-  // file:///C:/path  -> P = '/C:/path'
-  // file://server/share/path -> P = 'server/share/path'
-  if (P <> '') and (P[1] = '/') then
-  begin
-    // Empty authority: /C:/path or /home/user
-    Delete(P, 1, 1); // 'C:/path' or 'home/user'
-    Result := StringReplace(TNetEncoding.URL.Decode(P), '/', '\', [rfReplaceAll]);
-    Exit;
-  end;
-
-  // Authority present: server/share/path
-  SlashPos := Pos('/', P);
-  if SlashPos = 0 then
-  begin
-    // Just 'server' -> treat as \\server\
-    Host := P;
-    PathPart := '';
-  end
-  else
-  begin
-    Host := Copy(P, 1, SlashPos - 1);
-    PathPart := Copy(P, SlashPos + 1);
-  end;
-
-  if SameText(Host, 'localhost') then
-  begin
-    // file://localhost/C:/path
-    Result := StringReplace(TNetEncoding.URL.Decode(PathPart), '/', '\', [rfReplaceAll]);
-  end
-  else
-  begin
-    // UNC: \\server\share\path
-    Result := '\\' + Host;
-    if PathPart <> '' then
-      Result := Result + '\' + StringReplace(TNetEncoding.URL.Decode(PathPart), '/', '\', [rfReplaceAll]);
-  end;
-end;
 
 procedure ShowUsage;
 begin
-  WriteLn(ErrOutput, 'LSP MCP Server v0.04');
+  WriteLn(ErrOutput, 'LSP MCP Server v0.05');
   WriteLn(ErrOutput, '');
   WriteLn(ErrOutput, 'Usage: DelphiLSPMCPServer [options]');
   WriteLn(ErrOutput, '');
@@ -248,6 +161,12 @@ begin
     // Force Console to UTF-8 for both input and output
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
+
+    // Set FPC environment variables for pasls
+    SetEnvironmentVariable('PP', 'C:\Tools\FPC\3.2.2\bin\i386-Win32\fpc.exe');
+    SetEnvironmentVariable('FPCDIR', 'C:\Tools\FPC\3.2.2');
+    SetEnvironmentVariable('FPCTARGET', 'win32');
+    SetEnvironmentVariable('FPCTARGETCPU', 'i386');
 
     // Parse command line
     if not ParseCommandLine then

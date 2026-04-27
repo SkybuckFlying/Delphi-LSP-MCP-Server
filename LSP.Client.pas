@@ -50,11 +50,11 @@ type
     procedure Shutdown;
 
     // Synchronous LSP operations - thread safe
-    function GetDefinition(const AUri: string; ALine, ACharacter: Integer): TArray<TLSPLocation>;
-    function GetReferences(const AUri: string; ALine, ACharacter: Integer; AIncludeDeclaration: Boolean): TArray<TLSPLocation>;
+    function GetDefinition(const AUri: string; ALine, ACharacter: Integer; out ALocations: TArray<TLSPLocation>): Boolean;
+    function GetReferences(const AUri: string; ALine, ACharacter: Integer; AIncludeDeclaration: Boolean; out ALocations: TArray<TLSPLocation>): Boolean;
     function GetHover(const AUri: string; ALine, ACharacter: Integer; out AHover: TLSPHover): Boolean;
-    function GetCompletion(const AUri: string; ALine, ACharacter: Integer): TArray<TLSPCompletionItem>;
-    function GetWorkspaceSymbols(const AQuery: string): TArray<TLSPSymbolInformation>;
+    function GetCompletion(const AUri: string; ALine, ACharacter: Integer; out AItems: TArray<TLSPCompletionItem>): Boolean;
+    function GetWorkspaceSymbols(const AQuery: string; out ASymbols: TArray<TLSPSymbolInformation>): Boolean;
 
     // Document synchronization
     procedure DidOpenTextDocument(const AUri, ALanguageId, AText: string; AVersion: Integer = 1);
@@ -440,9 +440,30 @@ begin
 end;
 
 procedure TLSPClient.HandleNotification(ANotification: TJsonRpcNotification);
+var
+  LogMsg: string;
+  LogType: Integer;
 begin
-  Logger.Debug('LSP notification: %s', [ANotification.Method]);
-  // TODO: Handle window/logMessage, textDocument/publishDiagnostics, etc
+  if ANotification.Method = 'window/logMessage' then
+  begin
+    if ANotification.Params.TryGetValue<Integer>('type', LogType) and
+       ANotification.Params.TryGetValue<string>('message', LogMsg) then
+    begin
+      case LogType of
+        1: Logger.Error('LSP Server: %s', [LogMsg]);
+        2: Logger.Warning('LSP Server: %s', [LogMsg]);
+        3: Logger.Info('LSP Server: %s', [LogMsg]);
+        else Logger.Debug('LSP Server: %s', [LogMsg]);
+      end;
+    end;
+  end
+  else if ANotification.Method = 'textDocument/publishDiagnostics' then
+  begin
+    Logger.Info('LSP Diagnostics received for %s', [ANotification.Params.GetValue<string>('uri')]);
+    // For now just log that we got them; full handling would involve storage/callbacks
+  end
+  else
+    Logger.Debug('LSP notification: %s', [ANotification.Method]);
 end;
 
 procedure TLSPClient.HandleRequest(ARequest: TJsonRpcRequest);
@@ -523,13 +544,14 @@ begin
       Result[I] := TLSPSymbolInformation.FromJSON(ResultArray.Items[I] as TJSONObject, IsValid); // FIX
 end;
 
-function TLSPClient.GetDefinition(const AUri: string; ALine, ACharacter: Integer): TArray<TLSPLocation>;
+function TLSPClient.GetDefinition(const AUri: string; ALine, ACharacter: Integer; out ALocations: TArray<TLSPLocation>): Boolean;
 var
   Params: TLSPDefinitionParams;
   ParamsJson: TJSONObject;
   Resp: TJsonRpcResponse;
 begin
-  SetLength(Result, 0);
+  Result := False;
+  SetLength(ALocations, 0);
   if not IsInitialized then Exit;
 
   Params.TextDocument.Uri := AUri;
@@ -540,7 +562,10 @@ begin
     Resp := SendRequestSync('textDocument/definition', ParamsJson, 10000);
     try
       if Assigned(Resp) and not Resp.IsError then
-        Result := ParseLocations(Resp.Result);
+      begin
+        ALocations := ParseLocations(Resp.Result);
+        Result := True;
+      end;
     finally
       Resp.Free;
     end;
@@ -549,13 +574,14 @@ begin
   end;
 end;
 
-function TLSPClient.GetReferences(const AUri: string; ALine, ACharacter: Integer; AIncludeDeclaration: Boolean): TArray<TLSPLocation>;
+function TLSPClient.GetReferences(const AUri: string; ALine, ACharacter: Integer; AIncludeDeclaration: Boolean; out ALocations: TArray<TLSPLocation>): Boolean;
 var
   Params: TLSPReferenceParams;
   ParamsJson: TJSONObject;
   Resp: TJsonRpcResponse;
 begin
-  SetLength(Result, 0);
+  Result := False;
+  SetLength(ALocations, 0);
   if not IsInitialized then Exit;
 
   Params.TextDocument.Uri := AUri;
@@ -567,7 +593,10 @@ begin
     Resp := SendRequestSync('textDocument/references', ParamsJson, 10000);
     try
       if Assigned(Resp) and not Resp.IsError then
-        Result := ParseLocations(Resp.Result);
+      begin
+        ALocations := ParseLocations(Resp.Result);
+        Result := True;
+      end;
     finally
       Resp.Free;
     end;
@@ -609,40 +638,44 @@ begin
   end;
 end;
 
-function TLSPClient.GetCompletion(const AUri: string; ALine, ACharacter: Integer): TArray<TLSPCompletionItem>;
+function TLSPClient.GetCompletion(const AUri: string; ALine, ACharacter: Integer; out AItems: TArray<TLSPCompletionItem>): Boolean;
 var
   Params: TLSPCompletionParams;
   ParamsJson: TJSONObject;
   Resp: TJsonRpcResponse;
 begin
-  SetLength(Result, 0);
+  Result := False;
+  SetLength(AItems, 0);
   if not IsInitialized then Exit;
 
   Params.TextDocument.Uri := AUri;
   Params.Position.Line := ALine;
   Params.Position.Character := ACharacter;
-  Params.HasContext := False;
   ParamsJson := Params.ToJSON;
   try
     Resp := SendRequestSync('textDocument/completion', ParamsJson, 10000);
     try
       if Assigned(Resp) and not Resp.IsError then
-        Result := ParseCompletionItems(Resp.Result);
+      begin
+        AItems := ParseCompletionItems(Resp.Result);
+        Result := True;
+      end;
     finally
-	  Resp.Free;
+      Resp.Free;
     end;
   finally
     ParamsJson.Free;
   end;
 end;
 
-function TLSPClient.GetWorkspaceSymbols(const AQuery: string): TArray<TLSPSymbolInformation>;
+function TLSPClient.GetWorkspaceSymbols(const AQuery: string; out ASymbols: TArray<TLSPSymbolInformation>): Boolean;
 var
   Params: TLSPWorkspaceSymbolParams;
   ParamsJson: TJSONObject;
   Resp: TJsonRpcResponse;
 begin
-  SetLength(Result, 0);
+  Result := False;
+  SetLength(ASymbols, 0);
   if not IsInitialized then Exit;
 
   Params.Query := AQuery;
@@ -651,7 +684,10 @@ begin
     Resp := SendRequestSync('workspace/symbol', ParamsJson, 10000);
     try
       if Assigned(Resp) and not Resp.IsError then
-        Result := ParseSymbols(Resp.Result);
+      begin
+        ASymbols := ParseSymbols(Resp.Result);
+        Result := True;
+      end;
     finally
       Resp.Free;
     end;

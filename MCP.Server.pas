@@ -7,10 +7,10 @@ unit MCP.Server;
 interface
 
 uses
-  System.SysUtils, System.Classes, System.JSON, System.SyncObjs,
+  System.SysUtils, System.Classes, System.JSON, System.SyncObjs, System.IOUtils,
   Winapi.Windows,
   Common.JsonRpc, Common.Logging, MCP.Protocol.Types, MCP.Transport.Stdio,
-  MCP.Tools.LSP, LSP.Client;
+  MCP.Tools.LSP, LSP.Client, System.NetEncoding, Common.Utils;
 
 type
   TMCPServer = class
@@ -55,7 +55,6 @@ type
 
 const
   MCP_NOT_INITIALIZED   = -32002;
-  MCP_PROTOCOL_VERSION  = '2025-11-25';
 
 implementation
 
@@ -97,6 +96,7 @@ begin
   inherited;
 end;
 
+
 function TMCPServer.GetInitialized: Boolean;
 begin
   Result := TInterlocked.CompareExchange(FInitializedFlag, 0, 0) <> 0;
@@ -123,6 +123,25 @@ begin
     Patterns.Add('*.lpr');
     Patterns.Add('*.inc');
     InitOptions.AddPair('scanFilePatterns', Patterns);
+
+    // Add FPC specific options to help pasls find the RTL
+    InitOptions.AddPair('fpcPath', 'C:\Tools\FPC\3.2.2\bin\i386-Win32\fpc.exe');
+    var FpcOptions := TJSONArray.Create;
+    FpcOptions.Add('-Mdelphi');
+    FpcOptions.Add('@C:\Tools\FPC\3.2.2\bin\i386-Win32\fpc.cfg');
+    FpcOptions.Add('-FuC:\Tools\FPC\3.2.2\units\i386-win32\rtl');
+    FpcOptions.Add('-FuC:\Tools\FPC\3.2.2\units\i386-win32\fcl-base');
+    InitOptions.AddPair('fpcOptions', FpcOptions);
+
+    InitOptions.AddPair('checkSyntax', True);
+    InitOptions.AddPair('publishDiagnostics', True);
+    // Dynamically find a project file in the workspace
+    var ProjectFiles := TDirectory.GetFiles(FileUriToPath(FWorkspaceRoot), '*.dpr');
+    if Length(ProjectFiles) = 0 then
+      ProjectFiles := TDirectory.GetFiles(FileUriToPath(FWorkspaceRoot), '*.lpr');
+
+    if Length(ProjectFiles) > 0 then
+      InitOptions.AddPair('program', ProjectFiles[0]);
 
     Logger.Info('Initializing LSP client...');
     Logger.Info('  LSP Path   : %s', [FLSPPath]);
@@ -262,6 +281,31 @@ begin
   end;
 
   try
+    // Try to extract workspace root from initialize params if provided
+    var NewRoot := '';
+    if (ARequest.Params <> nil) and (ARequest.Params is TJSONObject) then
+    begin
+      var RootObj := TJSONObject(ARequest.Params);
+      var RootVal := RootObj.GetValue('rootUri');
+      if RootVal = nil then
+        RootVal := RootObj.GetValue('rootPath');
+      
+      if RootVal <> nil then
+        NewRoot := RootVal.Value;
+    end;
+    
+    if NewRoot <> '' then
+    begin
+      if not NewRoot.StartsWith('file://', True) then
+        NewRoot := PathToFileUri(NewRoot);
+      
+      if NewRoot <> FWorkspaceRoot then
+      begin
+        Logger.Info('Switching workspace to: %s', [NewRoot]);
+        FWorkspaceRoot := NewRoot;
+      end;
+    end;
+
     if Params.ProtocolVersion <> MCP_PROTOCOL_VERSION then
       Logger.Warning('Client protocol version mismatch: %s (server: %s)',
         [Params.ProtocolVersion, MCP_PROTOCOL_VERSION]);

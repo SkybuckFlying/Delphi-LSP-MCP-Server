@@ -6,7 +6,7 @@ A Model Context Protocol (MCP) server that exposes Language Server Protocol (LSP
 
 **Author:** Skybuck Flying  
 **Contact:** skybuck2000@hotmail.com  
-**Version:** 0.04  
+**Version:** 0.05  
 
 **Repository:** https://github.com/SkybuckFlying/Delphi-LSP-MCP-Server  
 
@@ -18,7 +18,7 @@ A Model Context Protocol (MCP) server that exposes Language Server Protocol (LSP
 ## Overview
 
 This server acts as a bridge between:
-- **MCP Clients** (like Claude Desktop, AI assistants) - communicate via JSON-RPC 2.0 over stdio
+- **MCP Clients** (like Claude Desktop, Antigravity, Gemini-CLI) - communicate via JSON-RPC 2.0 over stdio
 - **LSP Servers** (DelphiLSP.exe or pasls.exe) - Embarcadero's or Free Pascal's Language Server
 
 It allows AI assistants to perform code intelligence operations on Delphi/Pascal source code, including:
@@ -42,7 +42,7 @@ It allows AI assistants to perform code intelligence operations on Delphi/Pascal
 
 Or use the command line:
 ```bash
-msbuild DelphiLSPMCPServer.dpr /p:Config=Release
+dcc64 DelphiLSPMCPServer.dpr
 ```
 
 ## Usage
@@ -55,40 +55,49 @@ DelphiLSPMCPServer [options]
 Options:
   --lsp-path <path>      Path to LSP server executable
                          (default: G:\Tools\PascalLanguageServer\git version 26 january 2026\pasls.exe)
-  --workspace <path>     Workspace root directory or file:// URI (default: current directory)
+  --workspace <path>     Static workspace root directory or file:// URI (Optional)
   --log-level <level>    Log level: debug, info, warning, error (default: info)
   --help                 Show help message
 ```
 
-### Running Standalone
+### Dynamic Workspace Configuration (v0.05+)
 
-```bash
-DelphiLSPMCPServer --workspace "C:\MyDelphiProject" --log-level debug
+Starting with version 0.05, the server is **environment-aware**. It can dynamically determine the workspace in two ways:
+1. **Initialize Sniffing**: The server intercepts the MCP `initialize` request and looks for `rootUri` or `rootPath`. It will automatically target the folder provided by the AI client.
+2. **CWD Defaulting**: If no workspace is provided via command line or protocol, it defaults to its own Current Working Directory.
+
+This makes it ideal for use with AI agents that switch between different projects.
+
+### Configuration Examples
+
+#### Antigravity / Gemini-CLI / Agent Settings
+To use the server with a dynamic agent, you can leave out the `--workspace` argument so the agent can provide it:
+
+```json
+{
+  "mcpServers": {
+    "delphi-lsp": {
+      "command": "C:\\Tools\\DelphiLSPMCPServer.exe",
+      "args": [
+        "--log-level", "info",
+        "--lsp-path", "G:\\Tools\\PascalLanguageServer\\git version 26 january 2026\\pasls.exe"
+      ]
+    }
+  }
+}
 ```
 
-The server will:
-1. Start the LSP server (DelphiLSP.exe or pasls.exe) as a child process
-2. Initialize the LSP connection
-3. Listen for MCP requests on stdin
-4. Send MCP responses to stdout
-5. Write logs to stderr
-
-### Integration with Claude Desktop
-
+#### Claude Desktop
 Add to your Claude Desktop MCP configuration (`claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "delphi-lsp": {
-      "command": "K:\\Delphi\\Tests\\test Skybuck's LSP MCP server\\version 0.04\\DelphiLSPMCPServer.exe",
+      "command": "C:\\Tools\\DelphiLSPMCPServer.exe",
       "args": [
-        "--workspace",
-        "C:\\MyDelphiProject",
-        "--log-level",
-        "info",
-        "--lsp-path",
-        "C:\\Tools\\RAD Studio\\37.0\\bin64\\DelphiLSP.exe"
+        "--workspace", "C:\\MyDelphiProject",
+        "--log-level", "info"
       ]
     }
   }
@@ -103,17 +112,8 @@ Find the definition of a symbol at a specific position.
 
 **Parameters:**
 - `uri` (string): File URI (e.g., `file:///C:/path/to/file.pas`)
-- `line` (integer): Zero-based line number (NOTE: Delphi IDE displays line numbers starting at 1, so subtract 1 from the IDE line number)
+- `line` (integer): Zero-based line number
 - `character` (integer): Zero-based character offset
-
-**Example:**
-```json
-{
-  "uri": "file:///C:/MyProject/Unit1.pas",
-  "line": 10,
-  "character": 15
-}
-```
 
 ### delphi_find_references
 
@@ -121,7 +121,7 @@ Find all references to a symbol.
 
 **Parameters:**
 - `uri` (string): File URI
-- `line` (integer): Zero-based line number (0-based)
+- `line` (integer): Zero-based line number
 - `character` (integer): Zero-based character offset
 - `includeDeclaration` (boolean, optional): Include declaration in results (default: true)
 
@@ -129,19 +129,9 @@ Find all references to a symbol.
 
 Get hover information (documentation, type info) for a symbol.
 
-**Parameters:**
-- `uri` (string): File URI
-- `line` (integer): Zero-based line number (0-based)
-- `character` (integer): Zero-based character offset
-
 ### delphi_completion
 
 Get code completion suggestions at a specific position.
-
-**Parameters:**
-- `uri` (string): File URI
-- `line` (integer): Zero-based line number (0-based)
-- `character` (integer): Zero-based character offset
 
 ### delphi_workspace_symbols
 
@@ -150,12 +140,6 @@ Search for symbols across the entire workspace.
 **Parameters:**
 - `query` (string): Search query string
 
-**Example:**
-```json
-{
-  "query": "TForm"
-}
-```
 
 ## Architecture
 
@@ -168,7 +152,7 @@ Search for symbols across the entire workspace.
            ▼
 ┌─────────────────────┐
 │  Delphi LSP MCP     │
-│  Server             │
+│  Server (v0.05)     │
 │  ┌───────────────┐  │
 │  │ MCP Server    │  │
 │  │ Component     │  │
@@ -190,103 +174,38 @@ Search for symbols across the entire workspace.
 
 ## Unit Structure
 
-The project is organized into well-separated units with clear responsibilities:
-
 | Unit | Responsibility |
 |------|---------------|
-| `Common.JsonRpc` | JSON-RPC 2.0 message types (Request, Response, Notification, Error), parsing, and helper functions |
-| `Common.Logging` | Thread-safe singleton logger writing to stderr with monotonic timestamps |
-| `MCP.Protocol.Types` | MCP protocol type definitions (capabilities, tools, content items, initialize params/result) |
-| `MCP.Server` | MCP server core: message dispatch, initialize handshake, tool routing |
-| `MCP.Tools.LSP` | Tool implementations bridging MCP tool calls to LSP requests, with retry logic |
-| `MCP.Transport.Stdio` | MCP stdio transport: reading/writing JSON-RPC messages over stdin/stdout with Content-Length headers |
-| `LSP.Client` | LSP client: synchronous request/response, pending request tracking, document sync |
-| `LSP.Protocol.Types` | LSP protocol type definitions (Position, Range, Location, Hover, Completion, etc.) |
-| `LSP.Transport.Process` | LSP process transport: child process management, pipe I/O, process monitoring |
-
-## Protocol Details
-
-### MCP Protocol
-
-- Version: 2025-11-25
-- Transport: stdio with Content-Length headers
-- Message Format: JSON-RPC 2.0
-
-### LSP Protocol
-
-- Version: 3.17
-- Transport: stdio with Content-Length headers
-- Message Format: JSON-RPC 2.0
-
-## Logging
-
-Logs are written to stderr with the following format:
-```
-[elapsed_seconds] [LEVEL] Message
-```
-
-Log levels:
-- **DEBUG**: Detailed protocol messages
-- **INFO**: General information (default)
-- **WARNING**: Warning messages
-- **ERROR**: Error messages
-
-## Troubleshooting
-
-### LSP server not found
-
-Ensure the path to the LSP server executable is correct. Use `--lsp-path` to specify the location:
-```bash
-DelphiLSPMCPServer --lsp-path "C:\Program Files\Embarcadero\Studio\37.0\bin64\DelphiLSP.exe"
-```
-
-### LSP initialization fails
-
-Check stderr logs for details. Common issues:
-- Invalid workspace path
-- LSP server crashes on startup
-- Insufficient permissions
-
-### No results from tools
-
-Ensure:
-1. The workspace path is correct
-2. The file URI uses the correct format (`file:///C:/path/to/file.pas`)
-3. Line and character positions are zero-based
-4. The file is part of a valid Delphi project
-5. The LSP server may still be indexing — the tool retry logic will attempt up to 3 retries automatically
-
-## License
-
-This is a demonstration project. Use at your own risk.
+| `Common.JsonRpc` | JSON-RPC 2.0 message types and parsing |
+| `Common.Logging` | Thread-safe singleton logger |
+| `Common.Utils` | **(NEW in 0.05)** Centralized Path/URI conversion utilities |
+| `MCP.Protocol.Types` | MCP protocol type definitions |
+| `MCP.Server` | MCP server core: dynamic workspace discovery, tool routing |
+| `MCP.Tools.LSP` | Tool implementations bridging MCP to LSP |
+| `MCP.Transport.Stdio` | MCP stdio transport with Content-Length headers |
+| `LSP.Client` | LSP client: synchronous requests, document sync |
+| `LSP.Protocol.Types` | LSP protocol type definitions |
+| `LSP.Transport.Process` | LSP process transport: child process management |
 
 ## Version History
 
 - **0.01** (26 January 2026) — Initial release
 - **0.02** (2 February 2026) — Protocol compliance improvements
-- **0.03** (2 February 2026) — Skipped
 - **0.04** (27 April 2026) — Improved unit separation and architecture
-  - Thread safety improvements: atomic flags via `TInterlocked` for running/initialized state
-  - Added LSP retry logic with configurable delays (100ms, 300ms, 600ms)
-  - Auto document open: tools automatically call `textDocument/didOpen` before LSP requests
-  - Robust file URI handling: proper encoding, UNC path support, `file://localhost/` support
-  - Monotonic timestamps in logger (elapsed seconds since start)
-  - Process monitor thread for detecting unexpected LSP server exits
-  - Added `resources/list` and `prompts/list` handlers (returning empty arrays)
-  - Proper LSP `Content-Length` + `Content-Type` header parsing
-  - Support for both DelphiLSP and pasls (Free Pascal Language Server)
+  - Added LSP retry logic and auto-document-open
+  - Support for both DelphiLSP and pasls
+- **0.05** (27 April 2026) — Dynamic Workspace & Stability
+  - **Dynamic Workspace Discovery**: Automatically sniffs `rootUri` from initialize request
+  - **Environment Stabilization**: Fixed FPC environment variable inheritance
+  - **Refactored Utilities**: Centralized URI/Path handling in `Common.Utils`
+  - **Auto-Project Search**: Automatically finds `.dpr` or `.lpr` in workspace root
+  - **Delphi Mode**: Forces `-Mdelphi` for better syntax parsing in Free Pascal
+  - **Expanded Test Suite**: Updated `SourceForAnalysis.dpr` with interfaces, generics, and inheritance tests
 
-## Future Direction
+## License
 
-### For Production Use
+This is a demonstration project. Use at your own risk.
 
-#### Add More LSP Features
-- Document symbols  
-- Code actions  
-- Formatting  
-- Rename  
-
-#### Enhance Error Handling
 - Automatic LSP server restart on crash  
 - Improved timeout handling  
 - Retry logic for transient failures  
