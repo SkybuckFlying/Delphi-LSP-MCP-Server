@@ -14,7 +14,6 @@ A Model Context Protocol (MCP) server that exposes Language Server Protocol (LSP
 - MCP Specification (2025-11-25): https://modelcontextprotocol.io/specification/2025-11-25  
 - LSP Specification 3.17: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/
 
-
 ## Overview
 
 This server acts as a bridge between:
@@ -27,6 +26,21 @@ It allows AI assistants to perform code intelligence operations on Delphi/Pascal
 - Hover Information
 - Code Completion
 - Workspace Symbol Search
+
+## AI Optimization (NEW)
+
+To maximize the effectiveness of this server with AI agents (such as Gemini-CLI or Claude Engineer), a standardized guidance file is available:
+
+### [DelphiLSP.md](./DelphiLSP.md)
+This document provides specific instructions for AI agents to prioritize semantic tools (e.g., `hover` and `goto_definition`) over standard text-based searches.
+
+**Recommended Setup:**
+Add the following snippet to a `GEMINI.md` file in the Delphi project root to ensure optimal use of the LSP:
+
+```markdown
+# Project Context
+Refer to [DelphiLSP.md](./DelphiLSP.md) for instructions on using semantic tools for code analysis. This is essential for accurate type checking and navigation.
+```
 
 ## Requirements
 
@@ -200,6 +214,7 @@ Search for symbols across the entire workspace.
   - **Refactored Utilities**: Centralized URI/Path handling in `Common.Utils`
   - **Auto-Project Search**: Automatically finds `.dpr` or `.lpr` in workspace root
   - **Delphi Mode**: Forces `-Mdelphi` for better syntax parsing in Free Pascal
+  - **AI Guidance**: Added `DelphiLSP.md` for standardized AI agent instructions
   - **Expanded Test Suite**: Updated `SourceForAnalysis.dpr` with interfaces, generics, and inheritance tests
 
 ## License
@@ -231,4 +246,4 @@ This is a demonstration project. Use at your own risk.
 #### Integration Tests
 - Real Delphi projects  
 - Various file types  
-- Edge cases  
+- Edge cases
