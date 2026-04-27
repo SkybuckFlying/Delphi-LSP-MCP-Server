@@ -1,12 +1,12 @@
 # Delphi LSP MCP Server
 
-A Model Context Protocol (MCP) server that exposes Delphi Language Server Protocol (LSP) capabilities to AI assistants and other MCP clients.
+A Model Context Protocol (MCP) server that exposes Language Server Protocol (LSP) capabilities to AI assistants and other MCP clients. Supports both Delphi's DelphiLSP and Free Pascal's pasls.
 
 ## Project Information
 
 **Author:** Skybuck Flying  
 **Contact:** skybuck2000@hotmail.com  
-**Version:** 0.01  
+**Version:** 0.04  
 
 **Repository:** https://github.com/SkybuckFlying/Delphi-LSP-MCP-Server  
 
@@ -19,9 +19,9 @@ A Model Context Protocol (MCP) server that exposes Delphi Language Server Protoc
 
 This server acts as a bridge between:
 - **MCP Clients** (like Claude Desktop, AI assistants) - communicate via JSON-RPC 2.0 over stdio
-- **DelphiLSP.exe** - Embarcadero's Delphi Language Server
+- **LSP Servers** (DelphiLSP.exe or pasls.exe) - Embarcadero's or Free Pascal's Language Server
 
-It allows AI assistants to perform code intelligence operations on Delphi source code, including:
+It allows AI assistants to perform code intelligence operations on Delphi/Pascal source code, including:
 - Go to Definition
 - Find References
 - Hover Information
@@ -31,7 +31,7 @@ It allows AI assistants to perform code intelligence operations on Delphi source
 ## Requirements
 
 - Delphi 13 (RAD Studio 13.0 or later)
-- DelphiLSP.exe (included with RAD Studio)
+- DelphiLSP.exe (included with RAD Studio) or pasls.exe (Free Pascal Language Server)
 - Windows OS
 
 ## Building
@@ -53,9 +53,9 @@ msbuild DelphiLSPMCPServer.dpr /p:Config=Release
 DelphiLSPMCPServer [options]
 
 Options:
-  --lsp-path <path>      Path to DelphiLSP.exe 
-                         (default: C:\Tools\RAD Studio\37.0\bin64\DelphiLSP.exe)
-  --workspace <path>     Workspace root directory (default: current directory)
+  --lsp-path <path>      Path to LSP server executable
+                         (default: G:\Tools\PascalLanguageServer\git version 26 january 2026\pasls.exe)
+  --workspace <path>     Workspace root directory or file:// URI (default: current directory)
   --log-level <level>    Log level: debug, info, warning, error (default: info)
   --help                 Show help message
 ```
@@ -67,7 +67,7 @@ DelphiLSPMCPServer --workspace "C:\MyDelphiProject" --log-level debug
 ```
 
 The server will:
-1. Start DelphiLSP.exe as a child process
+1. Start the LSP server (DelphiLSP.exe or pasls.exe) as a child process
 2. Initialize the LSP connection
 3. Listen for MCP requests on stdin
 4. Send MCP responses to stdout
@@ -81,7 +81,7 @@ Add to your Claude Desktop MCP configuration (`claude_desktop_config.json`):
 {
   "mcpServers": {
     "delphi-lsp": {
-      "command": "K:\\Delphi\\Tests\\test Skybuck's LSP MCP server\\version 0.01\\DelphiLSPMCPServer.exe",
+      "command": "K:\\Delphi\\Tests\\test Skybuck's LSP MCP server\\version 0.04\\DelphiLSPMCPServer.exe",
       "args": [
         "--workspace",
         "C:\\MyDelphiProject",
@@ -182,10 +182,27 @@ Search for symbols across the entire workspace.
            │ LSP JSON-RPC over stdio
            ▼
 ┌─────────────────────┐
-│  DelphiLSP.exe      │
+│  DelphiLSP.exe /    │
+│  pasls.exe          │
 │  (Language Server)  │
 └─────────────────────┘
 ```
+
+## Unit Structure
+
+The project is organized into well-separated units with clear responsibilities:
+
+| Unit | Responsibility |
+|------|---------------|
+| `Common.JsonRpc` | JSON-RPC 2.0 message types (Request, Response, Notification, Error), parsing, and helper functions |
+| `Common.Logging` | Thread-safe singleton logger writing to stderr with monotonic timestamps |
+| `MCP.Protocol.Types` | MCP protocol type definitions (capabilities, tools, content items, initialize params/result) |
+| `MCP.Server` | MCP server core: message dispatch, initialize handshake, tool routing |
+| `MCP.Tools.LSP` | Tool implementations bridging MCP tool calls to LSP requests, with retry logic |
+| `MCP.Transport.Stdio` | MCP stdio transport: reading/writing JSON-RPC messages over stdin/stdout with Content-Length headers |
+| `LSP.Client` | LSP client: synchronous request/response, pending request tracking, document sync |
+| `LSP.Protocol.Types` | LSP protocol type definitions (Position, Range, Location, Hover, Completion, etc.) |
+| `LSP.Transport.Process` | LSP process transport: child process management, pipe I/O, process monitoring |
 
 ## Protocol Details
 
@@ -205,7 +222,7 @@ Search for symbols across the entire workspace.
 
 Logs are written to stderr with the following format:
 ```
-[YYYY-MM-DD HH:MM:SS.mmm] [LEVEL] Message
+[elapsed_seconds] [LEVEL] Message
 ```
 
 Log levels:
@@ -216,9 +233,9 @@ Log levels:
 
 ## Troubleshooting
 
-### DelphiLSP.exe not found
+### LSP server not found
 
-Ensure the path to DelphiLSP.exe is correct. Use `--lsp-path` to specify the location:
+Ensure the path to the LSP server executable is correct. Use `--lsp-path` to specify the location:
 ```bash
 DelphiLSPMCPServer --lsp-path "C:\Program Files\Embarcadero\Studio\37.0\bin64\DelphiLSP.exe"
 ```
@@ -227,7 +244,7 @@ DelphiLSPMCPServer --lsp-path "C:\Program Files\Embarcadero\Studio\37.0\bin64\De
 
 Check stderr logs for details. Common issues:
 - Invalid workspace path
-- DelphiLSP.exe crashes on startup
+- LSP server crashes on startup
 - Insufficient permissions
 
 ### No results from tools
@@ -237,14 +254,27 @@ Ensure:
 2. The file URI uses the correct format (`file:///C:/path/to/file.pas`)
 3. Line and character positions are zero-based
 4. The file is part of a valid Delphi project
+5. The LSP server may still be indexing — the tool retry logic will attempt up to 3 retries automatically
 
 ## License
 
 This is a demonstration project. Use at your own risk.
 
-## Version
+## Version History
 
-0.1.0 - Initial release
+- **0.01** — Initial release
+- **0.02** — Protocol compliance improvements
+- **0.03** — Skipped
+- **0.04** — Improved unit separation and architecture
+  - Thread safety improvements: atomic flags via `TInterlocked` for running/initialized state
+  - Added LSP retry logic with configurable delays (100ms, 300ms, 600ms)
+  - Auto document open: tools automatically call `textDocument/didOpen` before LSP requests
+  - Robust file URI handling: proper encoding, UNC path support, `file://localhost/` support
+  - Monotonic timestamps in logger (elapsed seconds since start)
+  - Process monitor thread for detecting unexpected LSP server exits
+  - Added `resources/list` and `prompts/list` handlers (returning empty arrays)
+  - Proper LSP `Content-Length` + `Content-Type` header parsing
+  - Support for both DelphiLSP and pasls (Free Pascal Language Server)
 
 ## Future Direction
 
@@ -283,4 +313,3 @@ This is a demonstration project. Use at your own risk.
 - Real Delphi projects  
 - Various file types  
 - Edge cases  
-
