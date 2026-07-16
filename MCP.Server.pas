@@ -304,7 +304,6 @@ var
   WorkspacePath: string;
   ProjectFiles: TArray<string>;
 begin
-  Result := False;
   StartTime := GetTickCount64;
 
   FLogContext.Enter('InitializeLSP');
@@ -761,6 +760,7 @@ var
   ResultJson: TJSONObject;
   IsValid: Boolean;
 begin
+  Params := nil;
   FLogContext.Enter('HandleToolsCall');
 
   try

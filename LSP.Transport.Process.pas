@@ -453,7 +453,6 @@ var
   StartTime: UInt64;
 begin
   Result := False;
-  StartTime := GetTickCount64;
 
   if not GetRunning then
   begin
@@ -558,7 +557,6 @@ begin
     while GetRunning do
     begin
       Inc(LoopCount);
-      StartTime := GetTickCount64;
 
 	  try
         Message := ReadMessage;
@@ -770,7 +768,6 @@ var
   StartTime: UInt64;
 begin
   Result := '';
-  StartTime := GetTickCount64;
 
   LogDebug('Reading message', []);
 

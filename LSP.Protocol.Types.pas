@@ -189,7 +189,7 @@ type
     destructor Destroy; override;
     function ToJSON: TJSONObject;
     class function FromJSON(AJson: TJSONObject; out IsValid: Boolean): TLSPInitializeParams; static;
-    function ToString: string;
+    function ToString: string; override;
   end;
 
   // LSP Initialize Result
@@ -201,7 +201,7 @@ type
     destructor Destroy; override;
     function ToJSON: TJSONObject;
     class function FromJSON(AJson: TJSONObject; out IsValid: Boolean): TLSPInitializeResult; static;
-    function ToString: string;
+    function ToString: string; override;
   end;
 
   // LSP Did Open Text Document Params

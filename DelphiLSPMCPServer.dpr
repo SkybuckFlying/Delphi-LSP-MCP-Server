@@ -557,7 +557,6 @@ var
   LocalPath: string;
   DebugModeFlag: Boolean;
 begin
-  Result := True;
   LSPPath := GetDefaultLSPPath;
   WorkspaceRoot := DEFAULT_WORKSPACE;
   LogLevel := 'info';
@@ -888,7 +887,6 @@ end;
 procedure RunServer;
 var
   DebugModeFlag: Boolean;
-  ReadyEventHandle: THandle;
 begin
   // Check for --wait flag before any initialization
   if ParamCount > 0 then
@@ -969,7 +967,7 @@ begin
     Logger.Debug('LSP file size: %d bytes', [TFile.GetSize(LSPPath)]);
 
     // Check if LSP bitness matches process bitness (warning only)
-    var LspIs64Bit := False;
+    var LspIs64Bit: Boolean;
     try
       var LspStream := TFileStream.Create(LSPPath, fmOpenRead);
       try
