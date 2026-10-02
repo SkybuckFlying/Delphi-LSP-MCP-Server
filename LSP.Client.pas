@@ -56,7 +56,7 @@ type
 	procedure SetDebugMode(AValue: Boolean);
 
     procedure HandleMessage(const AMessage: string);
-    procedure HandleResponse(AResponse: TJsonRpcResponse);
+    function HandleResponse(AResponse: TJsonRpcResponse): Boolean;
     procedure HandleNotification(ANotification: TJsonRpcNotification);
     procedure HandleRequest(ARequest: TJsonRpcRequest);
     function SendRequestSync(const AMethod: string; AParams: TJSONValue; ATimeout: Cardinal): TJsonRpcResponse;
@@ -118,7 +118,7 @@ end;
 
 procedure TLSPRequestResult.SetResponse(AResponse: TJsonRpcResponse);
 begin
-  FResponse := TJsonRpcResponse.Create(AResponse.Id, AResponse.Result, AResponse.Error);
+  FResponse := AResponse;
   FEvent.SetEvent;
 end;
 
@@ -233,7 +233,7 @@ begin
   try
     LogDebug('Clearing %d pending requests', [FPendingRequests.Count]);
     for Req in FPendingRequests.Values do
-      Req.Free;
+      Req.FEvent.SetEvent;
     FPendingRequests.Clear;
   finally
     FLock.Leave;
@@ -506,21 +506,36 @@ begin
 
           if ResultObj.WaitFor(ATimeout) then
           begin
-            Result := ResultObj.Response;
-            ResultObj.FResponse := nil;
+            FLock.Enter;
+            try
+              Result := ResultObj.Response;
+              ResultObj.FResponse := nil;
+            finally
+              FLock.Leave;
+            end;
             Inc(FTotalResponses);
 			LogDebug('Response received in %d ms', [GetTickCount64 - StartTime]);
           end
           else
           begin
-            Inc(FTotalTimeouts);
-			Logger.Error('Request %s timeout after %d ms', [AMethod, ATimeout]);
-            LogDebug('Request timeout - Duration: %d ms', [GetTickCount64 - StartTime]);
             FLock.Enter;
             try
               FPendingRequests.Remove(RequestId);
+              if Assigned(ResultObj.Response) then
+              begin
+                Result := ResultObj.Response;
+                ResultObj.FResponse := nil;
+                Inc(FTotalResponses);
+              end;
             finally
               FLock.Leave;
+            end;
+
+            if not Assigned(Result) then
+            begin
+              Inc(FTotalTimeouts);
+              Logger.Error('Request %s timeout after %d ms', [AMethod, ATimeout]);
+              LogDebug('Request timeout - Duration: %d ms', [GetTickCount64 - StartTime]);
             end;
           end;
         finally
@@ -563,6 +578,7 @@ var
   MessageType: TJsonRpcMessageType;
   MessageObj: TObject;
   ErrorStr: string;
+  RetainMessageObj: Boolean;
 begin
   LogDebug('Handling incoming message (length: %d)', [Length(AMessage)]);
 
@@ -575,10 +591,11 @@ begin
     Exit;
   end;
 
+  RetainMessageObj := False;
   try
     case MessageType of
       jmtResponse:
-        HandleResponse(MessageObj as TJsonRpcResponse);
+        RetainMessageObj := HandleResponse(MessageObj as TJsonRpcResponse);
       jmtNotification:
 		HandleNotification(MessageObj as TJsonRpcNotification);
       jmtRequest:
@@ -590,15 +607,17 @@ begin
         end;
     end;
   finally
-    MessageObj.Free;
+    if not RetainMessageObj then
+      MessageObj.Free;
   end;
 end;
 
-procedure TLSPClient.HandleResponse(AResponse: TJsonRpcResponse);
+function TLSPClient.HandleResponse(AResponse: TJsonRpcResponse): Boolean;
 var
   RequestId: string;
   ResultObj: TLSPRequestResult;
 begin
+  Result := False;
   if not Assigned(AResponse.Id) then
   begin
     LogDebug('Response without ID received', []);
@@ -614,27 +633,17 @@ begin
     begin
       FPendingRequests.Remove(RequestId);
       LogDebug('Found matching pending request (remaining: %d)', [FPendingRequests.Count]);
+      ResultObj.SetResponse(AResponse);
+      Result := True;
+      LogDebug('Response set successfully', []);
     end
     else
     begin
       Logger.Warning('Received response for unknown request id: %s', [RequestId]);
       LogDebug('Unknown request ID', []);
-      Exit;
     end;
   finally
     FLock.Leave;
-  end;
-
-  try
-    ResultObj.SetResponse(AResponse);
-    LogDebug('Response set successfully', []);
-  except
-    on E: Exception do
-    begin
-	  Inc(FTotalErrors);
-      Logger.Error('Exception in response handler: %s', [E.Message]);
-      LogDebug('Exception: %s - %s', [E.ClassName, E.Message]);
-    end;
   end;
 end;
 

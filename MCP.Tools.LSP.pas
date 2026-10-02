@@ -12,6 +12,23 @@ uses
   MCP.Protocol.Types, LSP.Client, LSP.Protocol.Types, Common.Logging;
 
 type
+{$IFNDEF FPC}
+  {$IF CompilerVersion < 36.0}
+  THashSet<T> = class
+  private
+    FDict: TDictionary<T, Byte>;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    function Add(const Item: T): Boolean;
+    function Contains(const Item: T): Boolean;
+    function Remove(const Item: T): Boolean;
+    procedure Clear;
+    function Count: Integer;
+  end;
+  {$ENDIF}
+{$ENDIF}
+
   TLSPCallFunc<T> = reference to function(out AResults: TArray<T>): Boolean;
 
   TMCPLSPTools = class
@@ -60,6 +77,51 @@ implementation
 
 uses
   System.NetEncoding;
+
+{$IFNDEF FPC}
+  {$IF CompilerVersion < 36.0}
+constructor THashSet<T>.Create;
+begin
+  inherited Create;
+  FDict := TDictionary<T, Byte>.Create;
+end;
+
+destructor THashSet<T>.Destroy;
+begin
+  FDict.Free;
+  inherited;
+end;
+
+function THashSet<T>.Add(const Item: T): Boolean;
+begin
+  Result := not FDict.ContainsKey(Item);
+  if Result then
+    FDict.Add(Item, 0);
+end;
+
+function THashSet<T>.Contains(const Item: T): Boolean;
+begin
+  Result := FDict.ContainsKey(Item);
+end;
+
+function THashSet<T>.Remove(const Item: T): Boolean;
+begin
+  Result := FDict.ContainsKey(Item);
+  if Result then
+    FDict.Remove(Item);
+end;
+
+procedure THashSet<T>.Clear;
+begin
+  FDict.Clear;
+end;
+
+function THashSet<T>.Count: Integer;
+begin
+  Result := FDict.Count;
+end;
+  {$ENDIF}
+{$ENDIF}
 
 { TMCPLSPTools }
 

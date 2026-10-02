@@ -220,8 +220,7 @@ begin
           begin
             Logger.Warning('Read thread timeout after 3000ms, forcing termination');
             LogDebug('Read thread timeout, forcing termination', []);
-            FReadThread.Terminate;
-            WaitForSingleObject(FReadThread.Handle, 100);
+            TerminateThread(FReadThread.Handle, 0);
           end;
         WAIT_FAILED:
           LogDebug('WaitForSingleObject failed with error: %d', [GetLastError]);

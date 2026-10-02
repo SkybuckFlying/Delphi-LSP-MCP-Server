@@ -79,6 +79,7 @@ var
   EncodedPath: string;
   OriginalPath: string;
 begin
+  Result := False;
   ConvResult.Success := False;
   ConvResult.OriginalPath := APath;
   ConvResult.ConvertedPath := '';
@@ -162,6 +163,7 @@ var
   SlashPos: Integer;
   DecodedPath: string;
 begin
+  Result := False;
   ConvResult.Success := False;
   ConvResult.OriginalPath := AUri;
   ConvResult.ConvertedPath := '';

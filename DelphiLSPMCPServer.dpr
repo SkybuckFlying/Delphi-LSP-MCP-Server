@@ -1,4 +1,4 @@
-﻿program DelphiLSPMCPServer;
+program DelphiLSPMCPServer;
 
 {$APPTYPE CONSOLE}
 
@@ -449,6 +449,7 @@ uses
   System.DateUtils,
   System.StrUtils,
   Winapi.Windows,
+  System.Win.Registry,
   Common.JsonRpc in 'Common.JsonRpc.pas',
   Common.Logging in 'Common.Logging.pas',
   MCP.Protocol.Types in 'MCP.Protocol.Types.pas',
@@ -516,17 +517,85 @@ begin
 end;
 
 function GetDefaultLSPPath: string;
+var
+  BdsEnv: string;
+  Reg: TRegistry;
+  DelphiVersions: array[0..6] of string;
+  V: string;
+  RootDir: string;
+  Candidate: string;
 begin
-  if Is64BitProcess then
+  // 1. If 64-bit and 64-bit default exists
+  if Is64BitProcess and FileExists(DEFAULT_LSP_PATH_64) then
+    Exit(DEFAULT_LSP_PATH_64);
+
+  // 2. If 32-bit default exists
+  if FileExists(DEFAULT_LSP_PATH_32) then
+    Exit(DEFAULT_LSP_PATH_32);
+
+  // 3. Check BDS environment variable
+  BdsEnv := GetEnvironmentVariable('BDS');
+  if BdsEnv <> '' then
   begin
-    Result := DEFAULT_LSP_PATH_64;
-    // If 64-bit version doesn't exist, fall back to 32-bit
-    if not FileExists(Result) then
-    begin
-      Logger.Warning('64-bit LSP not found, falling back to 32-bit: %s', [DEFAULT_LSP_PATH_32]);
-      Result := DEFAULT_LSP_PATH_32;
+    if Is64BitProcess and FileExists(TPath.Combine(BdsEnv, 'bin64\DelphiLSP.exe')) then
+      Exit(TPath.Combine(BdsEnv, 'bin64\DelphiLSP.exe'));
+    if FileExists(TPath.Combine(BdsEnv, 'bin\DelphiLSP.exe')) then
+      Exit(TPath.Combine(BdsEnv, 'bin\DelphiLSP.exe'));
+  end;
+
+  // 4. Check Windows Registry for installed RAD Studio / Delphi BDS versions
+  DelphiVersions[0] := '37.0'; // Delphi 13
+  DelphiVersions[1] := '23.0'; // Delphi 12
+  DelphiVersions[2] := '22.0'; // Delphi 11
+  DelphiVersions[3] := '21.0'; // Delphi 10.4
+  DelphiVersions[4] := '20.0'; // Delphi 10.3
+  DelphiVersions[5] := '24.0';
+  DelphiVersions[6] := '28.0';
+
+  try
+    Reg := TRegistry.Create(KEY_READ);
+    try
+      Reg.RootKey := HKEY_LOCAL_MACHINE;
+      for V in DelphiVersions do
+      begin
+        if Reg.OpenKeyReadOnly('SOFTWARE\WOW6432Node\Embarcadero\BDS\' + V) or
+           Reg.OpenKeyReadOnly('SOFTWARE\Embarcadero\BDS\' + V) then
+        begin
+          RootDir := Reg.ReadString('RootDir');
+          Reg.CloseKey;
+          if RootDir <> '' then
+          begin
+            if Is64BitProcess and FileExists(TPath.Combine(RootDir, 'bin64\DelphiLSP.exe')) then
+              Exit(TPath.Combine(RootDir, 'bin64\DelphiLSP.exe'));
+            if FileExists(TPath.Combine(RootDir, 'bin\DelphiLSP.exe')) then
+              Exit(TPath.Combine(RootDir, 'bin\DelphiLSP.exe'));
+          end;
+        end;
+      end;
+    finally
+      Reg.Free;
     end;
-  end
+  except
+    // Ignore registry errors
+  end;
+
+  // 5. Check well-known default file paths
+  for Candidate in [
+    'C:\Program Files (x86)\Embarcadero\Studio\22.0\bin\DelphiLSP.exe',
+    'C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\DelphiLSP.exe',
+    'C:\Program Files (x86)\Embarcadero\Studio\21.0\bin\DelphiLSP.exe',
+    'C:\Program Files\Embarcadero\Studio\22.0\bin\DelphiLSP.exe',
+    'C:\Tools\RAD Studio\37.0\bin64\DelphiLSP.exe',
+    'C:\Tools\RAD Studio\37.0\bin\DelphiLSP.exe'
+  ] do
+  begin
+    if FileExists(Candidate) then
+      Exit(Candidate);
+  end;
+
+  // Fallback to configured defaults
+  if Is64BitProcess then
+    Result := DEFAULT_LSP_PATH_64
   else
     Result := DEFAULT_LSP_PATH_32;
 end;
@@ -550,7 +619,7 @@ begin
   end;
 end;
 
-function ParseCommandLine: Boolean;
+function ParseCommandLine(out ADebugMode: Boolean): Boolean;
 var
   Param: string;
   I: Integer;
@@ -563,6 +632,7 @@ begin
   LogLevel := 'info';
   DebugModeFlag := False;
   WaitForDebugger := False;
+  ADebugMode := False;
 
   I := 1;
   while I <= ParamCount do
@@ -649,7 +719,8 @@ begin
     end;
   end;
 
-  Result := DebugModeFlag;
+  ADebugMode := DebugModeFlag;
+  Result := True;
 end;
 
 procedure ConfigureLogging;
@@ -925,9 +996,8 @@ begin
     SetConsoleCP(CP_UTF8);
     Logger.Debug('Console code pages set to UTF-8');
 
-    // Parse command line - returns debug flag
-    DebugModeFlag := ParseCommandLine;
-    if not DebugModeFlag then
+    // Parse command line
+    if not ParseCommandLine(DebugModeFlag) then
       Exit;
 
     // Configure logging
@@ -1048,8 +1118,13 @@ begin
   CleanupEvents;
   LogContext.Exit('Main');
 
-  WriteLn(ErrOutput, 'Server shutdown complete. Press ENTER to exit...');
-  ReadLn;
+  if WaitForDebugger then
+  begin
+    WriteLn(ErrOutput, 'Server shutdown complete. Press ENTER to exit...');
+    ReadLn;
+  end
+  else
+    WriteLn(ErrOutput, 'Server shutdown complete.');
 end;
 
 begin

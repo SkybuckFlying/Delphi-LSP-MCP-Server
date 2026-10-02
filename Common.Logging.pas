@@ -1,4 +1,4 @@
-﻿unit Common.Logging;
+unit Common.Logging;
 
 {$IFDEF FPC}
   {$MODE DELPHI}
@@ -202,6 +202,17 @@ begin
   FLock.Free;
 end;
 
+type
+  TUTF8EncodingNoBOM = class(TUTF8Encoding)
+  public
+    function GetPreamble: TBytes; override;
+  end;
+
+function TUTF8EncodingNoBOM.GetPreamble: TBytes;
+begin
+  SetLength(Result, 0);
+end;
+
 constructor TLogger.Create;
 var
   StdErrHandle: THandle;
@@ -222,7 +233,11 @@ begin
 
   // Create UTF-8 encoding WITHOUT BOM (False = no BOM)
   // TStreamWriter will take ownership and free the encoding object
+  {$IF CompilerVersion >= 36.0}
   Utf8NoBom := TUTF8Encoding.Create(False);
+  {$ELSE}
+  Utf8NoBom := TUTF8EncodingNoBOM.Create;
+  {$ENDIF}
   FErrWriter := TStreamWriter.Create(FErrStream, Utf8NoBom, 4096);
 
   FErrWriter.AutoFlush := True;
